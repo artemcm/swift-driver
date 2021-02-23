@@ -214,6 +214,7 @@ public final class MultiJobExecutor {
       finishedJob job: Job,
       result: ProcessResult
     ) throws {
+      try incrementalCompilationState?.removeFromUnfinishedSet(job)
       guard job.kind.isCompile else {
         return
       }

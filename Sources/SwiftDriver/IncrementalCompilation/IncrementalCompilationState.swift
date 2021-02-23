@@ -220,8 +220,6 @@ extension IncrementalCompilationState {
     job finishedJob: Job, result: ProcessResult
    ) throws -> [Job]? {
     return try confinementQueue.sync {
-      unfinishedJobs.remove(finishedJob)
-
       guard case .terminated = result.exitStatus else {
         return []
       }
@@ -245,7 +243,14 @@ extension IncrementalCompilationState {
       }
       return newJobs
     }
- }
+  }
+
+  /// After `job` finished, ensure we no longer track its execution
+  public func removeFromUnfinishedSet(_ job: Job) throws {
+    try confinementQueue.sync {
+      unfinishedJobs.remove(job)
+    }
+  }
 
   /// After `job` finished find out which inputs must compiled that were not known to need compilation before
   private func collectInputsInvalidatedByRunning(_ job: Job)-> Set<TypedVirtualPath> {
