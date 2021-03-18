@@ -10,6 +10,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+import Foundation
 import TSCBasic
 import SwiftOptions
 
@@ -81,7 +82,7 @@ extension Driver {
   -> ([Job], IncrementalCompilationState?) {
     precondition(compilerMode.isStandardCompilationForPlanning,
                  "compiler mode \(compilerMode) is handled elsewhere")
-
+    print("DRIVER : planStandardCompile")
     // Centralize job accumulation here.
     // For incremental compilation, must separate jobs happening before,
     // during, and after compilation.
@@ -124,7 +125,7 @@ extension Driver {
       driver: &self,
       options: self.computeIncrementalOptions(),
       jobsInPhases: jobsInPhases)
-
+    print("")
     return try (
       // For compatibility with swiftpm, the driver produces batched jobs
       // for every job, even when run in incremental mode, so that all jobs
@@ -484,8 +485,35 @@ extension Driver {
   /// Preprocess the graph by resolving placeholder dependencies, if any are present and
   /// by re-scanning all Clang modules against all possible targets they will be built against.
   public mutating func generateExplicitModuleDependenciesJobs() throws -> [Job] {
-    // Run the dependency scanner and update the dependency oracle with the results
-    let dependencyGraph = try gatherModuleDependencies()
+    print("DRIVER : generateExplicitModuleDependenciesJobs")
+
+    // Check if there is a prior inter-module dependency graph
+    guard let recordInfo = buildRecordInfo else {
+      fatalError("Do not have a build record info")
+    }
+    let serializedGraphPath = recordInfo.externalDependencyGraphPath
+    let priorDependencyGraph = try InterModuleDependencyGraph.read(from: serializedGraphPath,
+                                                                   on: fileSystem)
+
+
+
+    let dependencyGraph: InterModuleDependencyGraph
+    // If a prior inter-module dependency graph exists, check if it can be re-used
+    if let graph = priorDependencyGraph {
+       let (addedImports, changedModules) = try identifyChangedModules(in: graph)
+       if addedImports.isEmpty && changedModules.isEmpty {
+         print("+++++++++++ IT IS OKAY TO RE-USE PRIOR GRAPH +++++++++++")
+         dependencyGraph = graph
+       } else {
+        // Run the dependency scanner and update the dependency oracle with the results
+        print("----------- EXECUTE DEPENDENCY SCAN -----------")
+        dependencyGraph = try gatherModuleDependencies()
+       }
+    } else {
+      // Run the dependency scanner and update the dependency oracle with the results
+      print("----------- EXECUTE DEPENDENCY SCAN -----------")
+      dependencyGraph = try gatherModuleDependencies()
+    }
 
     // Plan build jobs for all direct and transitive module dependencies of the current target
     explicitDependencyBuildPlanner =
@@ -494,6 +522,113 @@ extension Driver {
                                          integratedDriver: integratedDriver)
 
     return try explicitDependencyBuildPlanner!.generateExplicitModuleDependenciesBuildJobs()
+  }
+
+  /// Returns the mod time of the module's output binary module file.
+  /// Returns `nil` if the corresponding output file does not exist
+  private mutating func getOutputModuleModTime(for moduleId: ModuleDependencyId,
+                                               in graph: InterModuleDependencyGraph)
+  throws -> Date? {
+    guard let moduleInfo = graph.modules[moduleId] else {
+      return nil
+    }
+    switch moduleId {
+      case .swift:
+        let outputFilePath = moduleInfo.modulePath.path
+        guard try fileSystem.exists(outputFilePath) else {
+          return nil
+        }
+        return try? fileSystem.lastModificationTime(for: outputFilePath)
+      case .clang:
+        let clangModuleDetails = try graph.clangModuleDetails(of: moduleId)
+        var earliestModTime: Date = .distantFuture
+        for capturedArgs in clangModuleDetails.dependenciesCapturedPCMArgs! {
+          
+
+          let modulePath =
+            try ExplicitDependencyBuildPlanner.targetEncodedClangModuleFilePathS(for: moduleInfo,
+                                                                                 hashParts: capturedArgs)
+          guard try fileSystem.exists(modulePath) else {
+            return nil
+          }
+          let moduleModTime = try fileSystem.lastModificationTime(for: modulePath)
+          if moduleModTime < earliestModTime {
+            earliestModTime = moduleModTime
+          }
+        }
+        return earliestModTime
+      default:
+        fatalError("Prototypes don't always work, Artem.")
+    }
+  }
+
+  private mutating func identifyChangedModules(in priorGraph: InterModuleDependencyGraph)
+  throws -> (addedImports: [String], changedModules: [ModuleDependencyId]) {
+    print("DRIVER : identifyChangedModules")
+    let importSet = Set(try gatherModuleImports())
+    let priorImportSet = Set(priorGraph.mainModule.directDependencies!.map{ $0.moduleName })
+    let addedImports = Array(importSet.subtracting(priorImportSet))
+
+    var changedModules : [ModuleDependencyId] = []
+    for (moduleId, moduleInfo) in priorGraph.modules {
+      // Main module itself will be built according to existing incremental build machinery
+      guard moduleId.moduleName != priorGraph.mainModuleName else {
+        continue
+      }
+
+      // For prebuilt modules, there is no source files to check, and we have no choise
+      // but to re-use them
+      if case .swiftPrebuiltExternal = moduleId {
+        // TODO: This doesn't actually work because it does not take into account whether
+        // this prebuilt external module is another target in the same build.
+        continue
+        //return false
+      }
+
+      // If the output module does not exist for some reason, we must re-scan and re-build
+      guard let outputModTime = try getOutputModuleModTime(for: moduleId, in: priorGraph) else {
+        changedModules.append(moduleId)
+        continue
+      }
+
+      // - For Swift modules, check if the source .swiftinterface file is newer than
+      //   the output module
+      // - For Clang modules, check if the source `.modulemap` file is newer than
+      //   the output module and if any of the source (header) files are newer than the module
+      switch moduleId {
+        case .swift:
+          let swiftModuleDetails = try priorGraph.swiftModuleDetails(of: moduleId)
+          // If there is no interface file, source files will be checked below
+          guard let interfaceFilePath = swiftModuleDetails.moduleInterfacePath?.path else {
+            break
+          }
+          if ((try? fileSystem.lastModificationTime(for: interfaceFilePath)) ?? .distantFuture)
+              >= outputModTime {
+            changedModules.append(moduleId)
+            continue
+          }
+        case .clang:
+          let clangModuleDetails = try priorGraph.clangModuleDetails(of: moduleId)
+          let moduleMapPath = clangModuleDetails.moduleMapPath
+          if ((try? fileSystem.lastModificationTime(for: moduleMapPath.path)) ?? .distantFuture)
+              >= outputModTime {
+            changedModules.append(moduleId)
+            continue
+          }
+        default:
+          break
+      }
+
+      // FIXME: make me a loop
+      try moduleInfo.sourceFiles?.forEach { sourceFile in
+        let sourcePath = try VirtualPath(path: sourceFile)
+        if ((try? fileSystem.lastModificationTime(for: sourcePath)) ?? .distantFuture)
+            >= outputModTime {
+          changedModules.append(moduleId)
+        }
+      }
+    }
+    return (addedImports, changedModules)
   }
 
   private mutating func gatherModuleDependencies()
@@ -518,7 +653,20 @@ extension Driver {
     // Update the dependency oracle, adding this new dependency graph to its store
     try interModuleDependencyOracle.mergeModules(from: dependencyGraph)
 
+    // ARTEM PROTOTYPE
+    // Serialize the dependency graph for future incremental builds.
+    guard let recordInfo = buildRecordInfo else {
+      fatalError("Do not have a build record info")
+    }
+    let serializedGraphPath = recordInfo.externalDependencyGraphPath
+    try dependencyGraph.write(to: serializedGraphPath, on: fileSystem)
+
     return dependencyGraph
+  }
+
+  private mutating func gatherModuleImports()
+  throws -> [String] {
+    return try performDependencyPrescan()
   }
 
   /// Update the given inter-module dependency graph to set module paths to be within the module cache,

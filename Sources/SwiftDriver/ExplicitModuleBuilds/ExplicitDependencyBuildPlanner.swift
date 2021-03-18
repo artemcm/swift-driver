@@ -102,7 +102,6 @@ public typealias ExternalBuildArtifacts = (ExternalTargetModulePathMap, ModuleIn
     let clangDependenciesJobs =
       try generateClangDependenciesBuildJobs(for: mainModuleDependencies,
                                              using: clangPCMSetMap)
-
     return swiftDependenciesJobs + clangDependenciesJobs
   }
 
@@ -418,7 +417,7 @@ extension ExplicitDependencyBuildPlanner {
   /// Compute the name of a given Clang module, along with a hash of extra PCM build arguments it
   /// is to be constructed with.
   @_spi(Testing) public mutating func targetEncodedClangModuleName(for moduleName: String,
-                                                          hashParts: [String])
+                                                                   hashParts: [String])
   throws -> String {
     let hashInput = hashParts.sorted().joined()
     // Hash based on "moduleName + hashInput"
@@ -438,6 +437,44 @@ extension ExplicitDependencyBuildPlanner {
     #endif
     let resultingName = moduleName + hashedArguments
     hashedModuleNameCache[cacheQuery] = resultingName
+    return resultingName
+  }
+}
+
+// Artem Prototype fix code duplication
+internal extension ExplicitDependencyBuildPlanner {
+  /// Compute a full path to the resulting .pcm file for a given Clang module, with the
+  /// target triple encoded in the name.
+  static func targetEncodedClangModuleFilePathS(for moduleInfo: ModuleInfo,
+                                                       hashParts: [String]) throws -> VirtualPath {
+    let plainModulePath = moduleInfo.modulePath.path
+    let targetEncodedBaseName =
+      try Self.targetEncodedClangModuleNameS(for: plainModulePath.basenameWithoutExt,
+                                            hashParts: hashParts)
+    let modifiedModulePath =
+      moduleInfo.modulePath.path.description
+        .replacingOccurrences(of: plainModulePath.basenameWithoutExt,
+                              with: targetEncodedBaseName)
+    return try VirtualPath(path: modifiedModulePath)
+  }
+
+  /// Compute the name of a given Clang module, along with a hash of extra PCM build arguments it
+  /// is to be constructed with.
+  static func targetEncodedClangModuleNameS(for moduleName: String,
+                                            hashParts: [String])
+  throws -> String {
+    let hashInput = hashParts.sorted().joined()
+    let hashedArguments: String
+    #if os(macOS)
+    if #available(macOS 10.15, iOS 13, *) {
+      hashedArguments = CryptoKitSHA256().hash(hashInput).hexadecimalRepresentation
+    } else {
+      hashedArguments = SHA256().hash(hashInput).hexadecimalRepresentation
+    }
+    #else
+    hashedArguments = SHA256().hash(hashInput).hexadecimalRepresentation
+    #endif
+    let resultingName = moduleName + hashedArguments
     return resultingName
   }
 }

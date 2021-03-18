@@ -181,6 +181,33 @@ internal final class SwiftScan {
     return resultGraphMap
   }
 
+  func prescanDependencies(workingDirectory: AbsolutePath,
+                           invocationCommand: [String]) throws -> [String] {
+    // Create and configure the scanner invocation
+    let invocation = api.swiftscan_scan_invocation_create()
+    defer { api.swiftscan_scan_invocation_dispose(invocation) }
+    api.swiftscan_scan_invocation_set_working_directory(invocation,
+                                                        workingDirectory
+                                                          .description
+                                                          .cString(using: String.Encoding.utf8))
+    withArrayOfCStrings(invocationCommand) { invocationStringArray in
+      api.swiftscan_scan_invocation_set_argv(invocation,
+                                             Int32(invocationCommand.count),
+                                             invocationStringArray)
+    }
+
+    let importsRefOrNull = api.swiftscan_import_set_create(scanner, invocation)
+    guard let importsRef = importsRefOrNull else {
+      throw DependencyScanningError.dependencyScanFailed
+    }
+
+    let imports = try constructImportSet(from: importsRef)
+    // Free the memory allocated for the in-memory representation of the import set
+    // returned by the scanner, now that we have translated it
+    api.swiftscan_import_set_dispose(importsRef)
+    return imports
+  }
+
   @_spi(Testing) public func canQuerySupportedArguments() -> Bool {
     return api.swiftscan_compiler_supported_arguments_query != nil &&
            api.swiftscan_string_set_dispose != nil

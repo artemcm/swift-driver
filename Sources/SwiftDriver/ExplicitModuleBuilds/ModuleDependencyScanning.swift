@@ -14,8 +14,8 @@ import TSCBasic
 import SwiftOptions
 
 extension Diagnostic.Message {
-  static func warn_scanner_frontend_fallback() -> Diagnostic.Message {
-    .warning("Fallback to `swift-frontend` dependency scanner invocation")
+  static func remark_scanner_frontend_fallback() -> Diagnostic.Message {
+    .remark("Fallback to `swift-frontend` dependency scanner invocation")
   }
 }
 
@@ -23,8 +23,8 @@ internal extension Driver {
   /// Precompute the dependencies for a given Swift compilation, producing a
   /// dependency graph including all Swift and C module files and
   /// source files.
-  mutating func dependencyScanningJob() throws -> Job {
-    let (inputs, commandLine) = try dependencyScannerInvocationCommand()
+  mutating func dependencyScanningJob(prescan: Bool = false) throws -> Job {
+    let (inputs, commandLine) = try dependencyScannerInvocationCommand(prescan: prescan)
 
     // Construct the scanning job.
     return Job(moduleName: moduleOutputInfo.name,
@@ -40,13 +40,16 @@ internal extension Driver {
 
   /// Generate a full command-line invocation to be used for the dependency scanning action
   /// on the target module.
-  mutating func dependencyScannerInvocationCommand()
+  mutating func dependencyScannerInvocationCommand(prescan: Bool)
   throws -> ([TypedVirtualPath],[Job.ArgTemplate]) {
     // Aggregate the fast dependency scanner arguments
     var inputs: [TypedVirtualPath] = []
     var commandLine: [Job.ArgTemplate] = swiftCompilerPrefixArgs.map { Job.ArgTemplate.flag($0) }
     commandLine.appendFlag("-frontend")
     commandLine.appendFlag("-scan-dependencies")
+    if prescan {
+      commandLine.appendFlag("-import-prescan")
+    }
     try addCommonFrontendOptions(commandLine: &commandLine, inputs: &inputs,
                                  bridgingHeaderHandling: .precompiled,
                                  moduleDependencyGraphUse: .dependencyScan)
@@ -108,7 +111,7 @@ internal extension Driver {
         .verifyOrCreateScannerInstance(fileSystem: fileSystem,
                                        swiftScanLibPath: scanLibPath) == false {
       fallbackToFrontend = true
-      diagnosticEngine.emit(.warn_scanner_frontend_fallback())
+      diagnosticEngine.emit(.remark_scanner_frontend_fallback())
     }
 
     if (!fallbackToFrontend) {
@@ -153,7 +156,7 @@ internal extension Driver {
         .verifyOrCreateScannerInstance(fileSystem: fileSystem,
                                        swiftScanLibPath: scanLibPath) == false {
       fallbackToFrontend = true
-      diagnosticEngine.emit(.warn_scanner_frontend_fallback())
+      diagnosticEngine.emit(.remark_scanner_frontend_fallback())
     }
 
     let moduleVersionedGraphMap: [ModuleDependencyId: [InterModuleDependencyGraph]]
@@ -182,6 +185,51 @@ internal extension Driver {
                                                            forceResponseFiles: forceResponseFiles)
     }
     return moduleVersionedGraphMap
+  }
+
+  mutating func performDependencyPrescan() throws -> [String] {
+    let scannerJob = try dependencyScanningJob(prescan: true)
+    let forceResponseFiles = parsedOptions.hasArgument(.driverForceResponseFiles)
+
+    // If `-nonlib-dependency-scanner` was specified or the libSwiftScan library cannot be found,
+    // attempt to fallback to using `swift-frontend -scan-dependencies` invocations for dependency
+    // scanning.
+    var fallbackToFrontend = parsedOptions.hasArgument(.driverScanDependenciesNonLib)
+    let scanLibPath = try Self.getScanLibPath(of: toolchain, hostTriple: hostTriple, env: env)
+    if try interModuleDependencyOracle
+        .verifyOrCreateScannerInstance(fileSystem: fileSystem,
+                                       swiftScanLibPath: scanLibPath) == false {
+      fallbackToFrontend = true
+      diagnosticEngine.emit(.remark_scanner_frontend_fallback())
+    }
+
+    let importSet : [String]
+    if (!fallbackToFrontend) {
+      let cwd = workingDirectory ?? fileSystem.currentWorkingDirectory!
+      var command = try itemizedJobCommand(of: scannerJob,
+                                           forceResponseFiles: forceResponseFiles,
+                                           using: executor.resolver)
+      // Remove the tool executable to only leave the arguments
+      command.removeFirst()
+      // We generate full swiftc -frontend -scan-dependencies invocations in order to also be
+      // able to launch them as standalone jobs. Frontend's argument parser won't recognize
+      // -frontend when passed directly.
+      if command.first == "-frontend" {
+        command.removeFirst()
+      }
+      importSet =
+        try interModuleDependencyOracle.getImports(workingDirectory: cwd,
+                                                   commandLine: command)
+    } else {
+      // Fallback to legacy invocation of the dependency scanner with
+      // `swift-frontend -scan-dependencies`
+      importSet =
+        try self.executor.execute(job: scannerJob,
+                                  capturingJSONOutputAs: [String].self,
+                                  forceResponseFiles: forceResponseFiles,
+                                  recordedInputModificationDates: recordedInputModificationDates)
+    }
+    return importSet
   }
 
   // Perform a batch scan by invoking the command-line dependency scanner and decoding the resulting
@@ -304,8 +352,8 @@ internal extension Driver {
       sharedLibExt = ".so"
     }
     return try getRootPath(of: toolchain, env: env).appending(component: "lib")
-      .appending(component: "swift")
-      .appending(component: hostTriple.osNameUnversioned)
+//      .appending(component: "swift")
+//      .appending(component: hostTriple.osNameUnversioned)
       .appending(component: "lib_InternalSwiftScan" + sharedLibExt)
   }
 

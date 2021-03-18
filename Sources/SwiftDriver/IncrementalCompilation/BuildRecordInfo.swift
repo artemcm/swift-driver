@@ -253,6 +253,17 @@ import SwiftOptions
       .appending(component: filename + ".priors")
   }
 
+  /// A build-record-relative path to the location of a serialized copy of the
+  /// driver's inter-module dependency graph.
+  ///
+  /// FIXME: Same as above.
+  var externalDependencyGraphPath: VirtualPath {
+    let filename = buildRecordPath.basenameWithoutExt
+    return buildRecordPath
+      .parentDirectory
+      .appending(component: filename + ".extdeps.priors")
+  }
+
   /// Directory to emit dot files into
   var dotFileDirectory: VirtualPath {
     buildRecordPath.parentDirectory

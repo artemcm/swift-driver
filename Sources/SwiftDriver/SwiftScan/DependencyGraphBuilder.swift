@@ -74,6 +74,15 @@ internal extension SwiftScan {
     }
     return resultMap
   }
+
+  /// From a reference to a binary-format import set returned by libSwiftScan prescan query,
+  /// construct instances of `String` for each import
+  func constructImportSet(from scannerImportSetRef: swiftscan_import_set_t) throws -> [String] {
+    guard let importsRef = api.swiftscan_import_set_get_imports(scannerImportSetRef) else {
+      fatalError("Prototypes don't always work.")
+    }
+    return try toSwiftStringArray(importsRef.pointee)
+  }
 }
 
 private extension SwiftScan {

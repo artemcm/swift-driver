@@ -10,6 +10,8 @@
 //
 //===----------------------------------------------------------------------===//
 import Foundation
+import TSCBasic
+
 /// A map from a module identifier to its info
 public typealias ModuleInfoMap = [ModuleDependencyId: ModuleInfo]
 
@@ -260,4 +262,34 @@ public struct InterModuleDependencyGraph: Codable {
 
   /// Information about the main module.
   public var mainModule: ModuleInfo { modules[.swift(mainModuleName)]! }
+}
+
+
+// MARK: - Serialization
+
+extension InterModuleDependencyGraph {
+  @_spi(Testing) public static func read(from path: VirtualPath, on fileSystem: FileSystem)
+  throws -> InterModuleDependencyGraph? {
+    guard try fileSystem.exists(path) else {
+      return nil
+    }
+    let contents = try fileSystem.readFileContents(path)
+    return try? JSONDecoder().decode(InterModuleDependencyGraph.self, from: Data(contents.contents))
+  }
+}
+
+extension InterModuleDependencyGraph {
+  @_spi(Testing) public func write(to path: VirtualPath, on fileSystem: FileSystem) throws {
+    let encoder = JSONEncoder()
+    let contents = try encoder.encode(self)
+    print("DRIVER: Writing computed dependency graph to: \(path.description)")
+    do {
+      try fileSystem.writeFileContents(path,
+                                       bytes: .init(contents),
+                                       atomically: true)
+    } catch {
+      // FIXME: Artem
+      fatalError("Couldn't write inter-module dependency graph")
+    }
+  }
 }
