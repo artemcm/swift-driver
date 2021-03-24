@@ -61,22 +61,78 @@ final class ToolExecutionDelegate: JobExecutionDelegate {
       stdoutStream <<< arguments.map { $0.spm_shellEscaped() }.joined(separator: " ") <<< "\n"
       stdoutStream.flush()
     case .parsableOutput:
-
-      // Compute the outputs for the message.
-      let outputs: [BeganMessage.Output] = job.outputs.map {
-        .init(path: $0.file.name, type: $0.type.description)
+      let beganMessages = constructJobBeganMessages(job: job, arguments: arguments, pid: pid)
+      for beganMessage in beganMessages {
+        let message = ParsableMessage(name: job.kind.rawValue, kind: .began(beganMessage))
+        emit(message)
       }
+    }
+  }
 
-      let beganMessage = BeganMessage(
-        pid: pid,
-        inputs: job.displayInputs.map{ $0.file.name },
-        outputs: outputs,
-        commandExecutable: arguments[0],
-        commandArguments: arguments[1...].map { String($0) }
-      )
+  public func constructJobBeganMessages(job: Job, arguments: [String], pid: Int) -> [BeganMessage] {
+    let result : [BeganMessage]
+    // Batched compile jobs need to be broken up into multiple messages, one per constituent.
+    if job.kind == .compile {
+      if job.primaryInputs.count == 1 {
+        result = [constructSingleBeganMessage(inputs: job.displayInputs,
+                                              outputs: job.outputs,
+                                              arguments: arguments,
+                                              pid: pid)]
+      } else {
+        result = constructBatchCompileBeginMessages(job: job, arguments: arguments, pid: pid)
+      }
+    } else {
+      result = [constructSingleBeganMessage(inputs: job.displayInputs,
+                                            outputs: job.outputs,
+                                            arguments: arguments,
+                                            pid: pid)]
+    }
 
-      let message = ParsableMessage(name: job.kind.rawValue, kind: .began(beganMessage))
-      emit(message)
+    return result
+  }
+
+  public func constructBatchCompileBeginMessages(job: Job, arguments: [String], pid: Int)
+  -> [BeganMessage] {
+    precondition(job.kind == .compile && job.primaryInputs.count > 1)
+    let result = job.primaryInputs.map { input -> BeganMessage in
+      constructSingleBeganMessage(inputs: [input],
+                                  outputs: job.getCompileInputOutputs(for: input) ?? [],
+                                  arguments: Self.filterPrimaryInputArgument(in: arguments,
+                                                                             input: input),
+                                  pid: pid)
+    }
+    return result
+  }
+
+  public func constructSingleBeganMessage(inputs: [TypedVirtualPath],
+                                          outputs: [TypedVirtualPath],
+                                          arguments: [String],
+                                          pid: Int) -> BeganMessage {
+
+    let outputs: [BeganMessage.Output] = outputs.map {
+      .init(path: $0.file.name, type: $0.type.description)
+    }
+
+    return BeganMessage(
+      pid: pid,
+      inputs: inputs.map{ $0.file.name },
+      outputs: outputs,
+      commandExecutable: arguments[0],
+      commandArguments: arguments[1...].map { String($0) }
+    )
+  }
+
+
+  private static func filterPrimaryInputArgument(in arguments: [String],
+                                                 input: TypedVirtualPath) -> [String] {
+    // We must have only one `-primary-file` option specified, the one that corresponds
+    // to the primary file whose job this message is faking.
+    return arguments.enumerated().compactMap() { index, element -> String? in
+      if element == "-primary-file" {
+        assert(arguments.count > index + 1)
+        return arguments[index + 1].hasSuffix(input.file.basename) ? element : nil
+      }
+      return element
     }
   }
 
