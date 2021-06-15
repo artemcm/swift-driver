@@ -99,7 +99,7 @@ public class InterModuleDependencyOracle {
     if swiftScan.canLoadStoreScannerCache() {
       return swiftScan.loadScannerCache(from: path)
     }
-    return false
+    return true
   }
 
   @_spi(Testing) public func resetScannerCache() {

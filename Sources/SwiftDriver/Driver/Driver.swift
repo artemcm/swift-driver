@@ -261,6 +261,12 @@ public struct Driver {
   /// Path to the references dependencies file.
   let referenceDependenciesPath: VirtualPath.Handle?
 
+  /// Path to the dependency scanner's serialized cache state.
+  let dependencyScannerCachePath: VirtualPath.Handle?
+
+  /// Path to this target's prior serialized inter-module dependency graph.
+  let priorExplicitModuleDependencyGraph: VirtualPath.Handle?
+
   /// Path to the serialized diagnostics file.
   let serializedDiagnosticsFilePath: VirtualPath.Handle?
 
@@ -604,6 +610,7 @@ public struct Driver {
         compilerMode: compilerMode,
         outputFileMap: self.outputFileMap,
         moduleName: moduleOutputInfo.name)
+
     self.referenceDependenciesPath = try Self.computeSupplementaryOutputPath(
         &parsedOptions, type: .swiftDeps, isOutputOptions: shouldAttemptIncrementalCompilation ? [.incremental] : [],
         outputPath: .emitReferenceDependenciesPath,
@@ -611,6 +618,10 @@ public struct Driver {
         compilerMode: compilerMode,
         outputFileMap: self.outputFileMap,
         moduleName: moduleOutputInfo.name)
+
+    self.dependencyScannerCachePath = outputFileMap?.existingOutputForSingleInput(outputType: .modDepCache)
+    self.priorExplicitModuleDependencyGraph = outputFileMap?.existingOutputForSingleInput(outputType: .targetInterModuleDependencies)
+
     self.serializedDiagnosticsFilePath = try Self.computeSupplementaryOutputPath(
         &parsedOptions, type: .diagnostics, isOutputOptions: [.serializeDiagnostics],
         outputPath: .serializeDiagnosticsPath,
@@ -1559,7 +1570,7 @@ extension Driver {
         compilerOutputType = nil
 
       case .scanDependencies:
-        compilerOutputType = .jsonDependencies
+        compilerOutputType = .targetInterModuleDependencies
 
       default:
         fatalError("unhandled output mode option \(outputOption)")

@@ -94,7 +94,7 @@ public enum FileType: String, Hashable, CaseIterable, Codable {
   case tbd
 
   /// JSON-based Module Dependency Scanner output
-  case jsonDependencies = "dependencies.json"
+  case targetInterModuleDependencies = "depgraph.json"
 
   /// JSON-based -print-target-info output
   case jsonTargetInfo = "targetInfo.json"
@@ -175,8 +175,8 @@ extension FileType: CustomStringConvertible {
     case .modDepCache:
         return "dependency-scanner-cache"
 
-    case .jsonDependencies:
-      return "json-dependencies"
+    case .targetInterModuleDependencies:
+      return "target-inter-module-dependencies"
 
     case .jsonTargetInfo:
       return "json-target-info"
@@ -222,7 +222,7 @@ extension FileType {
          .importedModules, .indexData, .remap, .dSYM, .autolink, .dependencies,
          .swiftDocumentation, .pcm, .diagnostics, .objcHeader, .image,
          .swiftDeps, .moduleTrace, .tbd, .yamlOptimizationRecord, .bitstreamOptimizationRecord,
-         .swiftInterface, .privateSwiftInterface, .swiftSourceInfoFile, .jsonDependencies,
+         .swiftInterface, .privateSwiftInterface, .swiftSourceInfoFile, .targetInterModuleDependencies,
          .clangModuleMap, .jsonTargetInfo, .jsonCompilerFeatures, .jsonSwiftArtifacts,
          .indexUnitOutputPath, .modDepCache:
       return false
@@ -297,8 +297,8 @@ extension FileType {
       return "swift-dependencies"
     case .modDepCache:
       return "dependency-scanner-cache"
-    case .jsonDependencies:
-      return "json-dependencies"
+    case .targetInterModuleDependencies:
+      return "target-inter-module-dependencies"
     case .jsonTargetInfo:
       return "json-target-info"
     case .jsonCompilerFeatures:
@@ -329,7 +329,7 @@ extension FileType {
     case .swift, .sil, .dependencies, .assembly, .ast, .raw_sil, .llvmIR,
          .objcHeader, .autolink, .importedModules, .tbd, .moduleTrace,
          .yamlOptimizationRecord, .swiftInterface, .privateSwiftInterface,
-         .jsonDependencies, .clangModuleMap, .jsonCompilerFeatures,
+         .targetInterModuleDependencies, .clangModuleMap, .jsonCompilerFeatures,
          .jsonTargetInfo, .jsonSwiftArtifacts:
       return true
     case .image, .object, .dSYM, .pch, .sib, .raw_sib, .swiftModule,
@@ -350,7 +350,7 @@ extension FileType {
          .swiftModule, .swiftDocumentation, .swiftInterface, .privateSwiftInterface,
          .swiftSourceInfoFile, .raw_sil, .raw_sib, .diagnostics, .objcHeader, .swiftDeps, .remap,
          .importedModules, .tbd, .moduleTrace, .indexData, .yamlOptimizationRecord, .modDepCache,
-         .bitstreamOptimizationRecord, .pcm, .pch, .jsonDependencies, .clangModuleMap,
+         .bitstreamOptimizationRecord, .pcm, .pch, .targetInterModuleDependencies, .clangModuleMap,
          .jsonCompilerFeatures, .jsonTargetInfo, .jsonSwiftArtifacts, .indexUnitOutputPath:
       return false
     }

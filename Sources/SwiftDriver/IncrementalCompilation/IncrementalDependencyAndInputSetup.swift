@@ -89,6 +89,9 @@ extension IncrementalCompilationState {
       options.formUnion(.enableCrossModuleIncrementalBuild)
       options.formUnion(.readPriorsFromModuleDependencyGraph)
     }
+    if driver.parsedOptions.contains(.driverExplicitModuleBuild) {
+      options.formUnion(.explicitModuleBuild)
+    }
     return options
   }
 }
@@ -179,8 +182,17 @@ extension IncrementalCompilationState {
         return nil
       }
 
+      let interModuleDependencyGraph : InterModuleDependencyGraph?
+      if options.contains(.explicitModuleBuild) {
+        interModuleDependencyGraph = readPriorInterModuleDependencyGraph()
+      } else {
+        interModuleDependencyGraph = nil
+      }
+
       return InitialStateForPlanning(
-        graph: graph, buildRecordInfo: buildRecordInfo,
+        graph: graph,
+        explicitModuleDependencyGraph: interModuleDependencyGraph,
+        buildRecordInfo: buildRecordInfo,
         maybeBuildRecord: maybeBuildRecord,
         inputsInvalidatedByExternals: inputsInvalidatedByExternals,
         incrementalOptions: options, buildStartTime: buildStartTime,
@@ -208,6 +220,28 @@ extension IncrementalCompilationState.IncrementalDependencyAndInputSetup {
     // Every external is added, but don't want to compile an unchanged input that has an import
     // so just changed, not changedOrAdded
     return buildInitialGraphFromSwiftDepsAndCollectInputsInvalidatedByChangedExternals()
+  }
+
+  private func readPriorInterModuleDependencyGraph() -> InterModuleDependencyGraph? {
+    guard let graphPathHandle = outputFileMap.existingOutputForSingleInput(outputType: .targetInterModuleDependencies) else {
+      return nil
+    }
+    let graphPath = VirtualPath.lookup(graphPathHandle)
+    let decodedGraph : InterModuleDependencyGraph?
+    do {
+      guard try fileSystem.exists(graphPath) else {
+        return nil
+      }
+      diagnosticEngine.emit(.remark_incremental_compilation(because: "Read inter-module dependency graph '\(graphPath.description)'"))
+      let contents = try fileSystem.readFileContents(graphPath)
+      decodedGraph = try JSONDecoder().decode(InterModuleDependencyGraph.self,
+                                              from: Data(contents.contents))
+    } catch {
+      diagnosticEngine.emit(
+        warning: "Could not read \(graphPath), dependency scanning has to be done from-scratch.")
+      decodedGraph = nil
+    }
+    return decodedGraph
   }
 
   private func readPriorGraphAndCollectInputsInvalidatedByChangedOrAddedExternals(

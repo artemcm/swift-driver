@@ -121,6 +121,8 @@ extension IncrementalCompilationState {
     /// In a cross-module build, the dependency graph is derived from prior
     /// state that is serialized alongside the build record.
     let graph: ModuleDependencyGraph
+    /// Prior information about explicit moduel dependencies
+    let explicitModuleDependencyGraph: InterModuleDependencyGraph?
     /// Information about the last known compilation, incl. the location of build artifacts such as the dependency graph.
     let buildRecordInfo: BuildRecordInfo
     /// Record about existence and time of the last compile.
@@ -482,6 +484,9 @@ extension IncrementalCompilationState {
     /// that reads the dependency graph from a serialized format on disk instead
     /// of reading O(N) swiftdeps files.
     public static let readPriorsFromModuleDependencyGraph    = Options(rawValue: 1 << 5)
+    /// Informs the incremental build state that this is an explicit module build,
+    /// which means actions like dependency scanning are incremental.
+    public static let explicitModuleBuild                    = Options(rawValue: 1 << 6)
   }
 }
 

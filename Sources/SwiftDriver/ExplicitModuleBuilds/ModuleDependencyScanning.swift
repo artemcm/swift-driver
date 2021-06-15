@@ -34,7 +34,7 @@ public extension Driver {
                displayInputs: inputs,
                inputs: inputs,
                primaryInputs: [],
-               outputs: [TypedVirtualPath(file: .standardOutput, type: .jsonDependencies)],
+               outputs: [TypedVirtualPath(file: .standardOutput, type: .targetInterModuleDependencies)],
                supportsResponseFiles: true)
   }
 
@@ -158,6 +158,20 @@ public extension Driver {
 
     let isSwiftScanLibAvailable = !(try initSwiftScanLib())
     if isSwiftScanLibAvailable {
+      if let scannerCachePath = self.dependencyScannerCachePath,
+         try fileSystem.exists(VirtualPath.lookup(scannerCachePath)) {
+        guard let path = VirtualPath.lookup(scannerCachePath).absolutePath else {
+          fatalError("Scanner cache path must be absolute.")
+        }
+        diagnosticEngine.emit(.remark_incremental_compilation(because: "Read dependency scanner cache '\(path.description)'"))
+        let loadFail = interModuleDependencyOracle.loadScannerCache(from: path)
+        if (loadFail) {
+          diagnosticEngine.emit(.remark_incremental_compilation(because: "Dependency scanner cache read failed"))
+        }
+      } else {
+        diagnosticEngine.emit(.remark_incremental_compilation(because: "No dependency scanner cache, starting from scratch."))
+      }
+
       let cwd = workingDirectory ?? fileSystem.currentWorkingDirectory!
       var command = try itemizedJobCommand(of: scannerJob,
                                            forceResponseFiles: forceResponseFiles,
@@ -166,6 +180,14 @@ public extension Driver {
       dependencyGraph =
         try interModuleDependencyOracle.getDependencies(workingDirectory: cwd,
                                                         commandLine: command)
+
+      if let scannerCachePath = self.dependencyScannerCachePath {
+        guard let path = VirtualPath.lookup(scannerCachePath).absolutePath else {
+          fatalError("Scanner cache path must be absolute.")
+        }
+        diagnosticEngine.emit(.remark_incremental_compilation(because: "Writing dependency scanner cache to '\(path.description)'"))
+        interModuleDependencyOracle.serializeScannerCache(to: path)
+      }
     } else {
       // Fallback to legacy invocation of the dependency scanner with
       // `swift-frontend -scan-dependencies`
@@ -271,7 +293,7 @@ public extension Driver {
                displayInputs: inputs,
                inputs: inputs,
                primaryInputs: [],
-               outputs: [TypedVirtualPath(file: .standardOutput, type: .jsonDependencies)],
+               outputs: [TypedVirtualPath(file: .standardOutput, type: .targetInterModuleDependencies)],
                supportsResponseFiles: true)
   }
 
@@ -305,10 +327,10 @@ public extension Driver {
       switch $0 {
         case .swift(let swiftModuleBatchScanInfo):
           return TypedVirtualPath(file: try VirtualPath.intern(path: swiftModuleBatchScanInfo.output),
-                                  type: .jsonDependencies)
+                                  type: .targetInterModuleDependencies)
         case .clang(let clangModuleBatchScanInfo):
           return TypedVirtualPath(file: try VirtualPath.intern(path: clangModuleBatchScanInfo.output),
-                                  type: .jsonDependencies)
+                                  type: .targetInterModuleDependencies)
       }
     }
 

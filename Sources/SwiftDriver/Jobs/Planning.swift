@@ -12,6 +12,7 @@
 
 import TSCBasic
 import SwiftOptions
+import Foundation
 
 public enum PlanningError: Error, DiagnosticData {
   case replReceivedInput
@@ -92,7 +93,8 @@ extension Driver {
       try IncrementalCompilationState.computeIncrementalStateForPlanning(driver: &self)
 
     // Compute the set of all jobs required to build this module
-    let jobsInPhases = try computeJobsForPhasedStandardBuild()
+    let jobsInPhases =
+      try computeJobsForPhasedStandardBuild(incrementalState: initialIncrementalState)
 
     // Determine the state for incremental compilation
     let incrementalCompilationState: IncrementalCompilationState?
@@ -118,7 +120,7 @@ extension Driver {
 
   /// Construct a build plan consisting of *all* jobs required for building the current module (non-incrementally).
   /// At build time, incremental state will be used to distinguish which of these jobs must run.
-  mutating private func computeJobsForPhasedStandardBuild() throws -> JobsInPhases {
+  mutating private func computeJobsForPhasedStandardBuild(incrementalState: IncrementalCompilationState.InitialStateForPlanning?) throws -> JobsInPhases {
     // Centralize job accumulation here.
     // For incremental compilation, must separate jobs happening before,
     // during, and after compilation.
@@ -139,7 +141,8 @@ extension Driver {
       jobsAfterCompiles.append(j)
     }
 
-    try addPrecompileModuleDependenciesJobs(addJob: addJobBeforeCompiles)
+    try addPrecompileModuleDependenciesJobs(addJob: addJobBeforeCompiles,
+                                            incrementalState: incrementalState)
     try addPrecompileBridgingHeaderJob(addJob: addJobBeforeCompiles)
     try addEmitModuleJob(addJobBeforeCompiles: addJobBeforeCompiles,
                          addJobAfterCompiles: addJobAfterCompiles)
@@ -156,10 +159,12 @@ extension Driver {
                         afterCompiles: jobsAfterCompiles)
   }
 
-  private mutating func addPrecompileModuleDependenciesJobs(addJob: (Job) -> Void) throws {
+  private mutating func addPrecompileModuleDependenciesJobs(addJob: (Job) -> Void,
+                                                            incrementalState: IncrementalCompilationState.InitialStateForPlanning?) throws {
     // If asked, add jobs to precompile module dependencies
     guard parsedOptions.contains(.driverExplicitModuleBuild) else { return }
-    let modulePrebuildJobs = try generateExplicitModuleDependenciesJobs()
+    let modulePrebuildJobs =
+      try generateExplicitModuleDependenciesJobs(incrementalState: incrementalState)
     modulePrebuildJobs.forEach(addJob)
   }
 
@@ -492,21 +497,165 @@ extension Driver {
     }
   }
 
+  private func allInputsAreOlderThanOutput(inputs: [VirtualPath.Handle], output: VirtualPath.Handle)
+  throws -> Bool {
+    let outputModulePath = VirtualPath.lookup(output)
+    guard try fileSystem.exists(outputModulePath) else {
+      return false
+    }
+    let outputModTime = (try? fileSystem.lastModificationTime(for: outputModulePath)) ?? .distantPast
+    //print("Checking inputs:")
+    for input in inputs {
+      //print("\(VirtualPath.lookup(input).description)")
+      let inputModTime = (try? fileSystem.lastModificationTime(for: VirtualPath.lookup(input))) ?? .distantFuture
+      if inputModTime >= outputModTime {
+        print("Input Newer than Output!")
+        print("Input: \(inputModTime.description)")
+        print("Output: \(outputModTime.description)")
+        return false
+      }
+    }
+    return true
+  }
+
+  private func dependencyUpToDate(moduleId: ModuleDependencyId,
+                                  priorGraph: InterModuleDependencyGraph) throws -> Bool {
+    // The main module we are currently building is not a dependency we need to check.
+    if case let .swift(moduleName) = moduleId,
+       moduleName == priorGraph.mainModuleName {
+      return true
+    }
+
+    guard let moduleInfo = priorGraph.modules[moduleId] else {
+      fatalError("Prior module dependency graph missing module: \(moduleId.moduleName)")
+    }
+    switch moduleId {
+      case .swift:
+        let swiftDetails = try priorGraph.swiftModuleDetails(of: moduleId)
+        // Collect all relevant input files' time-stamps
+        var inputs: [VirtualPath.Handle] = []
+        if let interfacePath = swiftDetails.moduleInterfacePath {
+          inputs.append(interfacePath.path)
+        }
+        // Hmm, should not encounter such dependencies. Perhaps we
+        // can rely on them always being up-to-date.
+        try moduleInfo.sourceFiles?.forEach {
+          inputs.append(try VirtualPath.intern(path: $0))
+        }
+        let output = moduleInfo.modulePath
+        return try allInputsAreOlderThanOutput(inputs: inputs, output: output.path)
+
+      case .clang:
+        let clangDetails = try priorGraph.clangModuleDetails(of: moduleId)
+        // Collect all relevant input files' time-stamps
+        var inputs: [VirtualPath.Handle] = []
+        inputs.append(clangDetails.moduleMapPath.path)
+        // Hmm, should not encounter such dependencies. Perhaps we
+        // can rely on them always being up-to-date.
+        try moduleInfo.sourceFiles?.forEach {
+          inputs.append(try VirtualPath.intern(path: $0))
+        }
+
+        // FIXME
+        var allOutputsUpToDate = true
+        try clangDetails.dependenciesCapturedPCMArgs?.forEach { argSet in
+          let plainModulePath = VirtualPath.lookup(moduleInfo.modulePath.path)
+
+          var hashedParts = argSet
+          if !integratedDriver {
+            hashedParts.append(moduleOutputInfo.name)
+          }
+          let hashInput = hashedParts.sorted().joined()
+          let hashedArguments: String
+          #if os(macOS)
+          if #available(macOS 10.15, iOS 13, *) {
+            hashedArguments = CryptoKitSHA256().hash(hashInput).hexadecimalRepresentation
+          } else {
+            hashedArguments = SHA256().hash(hashInput).hexadecimalRepresentation
+          }
+          #else
+          hashedArguments = SHA256().hash(hashInput).hexadecimalRepresentation
+          #endif
+          let targetEncodedBaseName = moduleId.moduleName + hashedArguments
+          let modifiedModulePath =
+          try VirtualPath.intern(path: moduleInfo.modulePath.path.description
+                                .replacingOccurrences(of: plainModulePath.basenameWithoutExt,
+                                                      with: targetEncodedBaseName))
+
+
+          if !(try allInputsAreOlderThanOutput(inputs: inputs, output: modifiedModulePath)) {
+            allOutputsUpToDate = false
+            return
+          }
+        }
+        return allOutputsUpToDate
+
+      case .swiftPrebuiltExternal:
+        // For a pre-built dependency, we do not have any input files which could have been
+        // modified to make the binary output module stale. We can re-use this module.
+        return true
+      case .swiftPlaceholder:
+        fatalError("Unresolved placeholder dependencies at planning stage: \(moduleId)")
+    }
+  }
+
+  private func canReusePriorExplicitDependenciesGraph(imports: [String],
+                                                      priorGraph: InterModuleDependencyGraph)
+  throws -> Bool {
+    // We have an inter-module dependency graph from a previous build
+    // Check if this graph can be re-used for explicit dependency job generation
+    // as follows:
+    // 1. Run an import-prescan to get a list of imports of this module
+    // 2. If the set of imports does not match that of the prior graph,
+    //    it cannot be re-used
+    // 3. Check each dependency and if any of its sources are newer than the output,
+    //    then the prior graph cannot be re-used.
+    assert(priorGraph.mainModuleName == moduleOutputInfo.name)
+    let priorImports = priorGraph.mainModule.directDependencies?.map { $0.moduleName }
+    if let priors = priorImports,
+       Set(imports) == Set(priors) {
+      print("Imports match. Checking dependency validity...")
+      var allDependenciesUpToDate = true
+      for moduleId in priorGraph.modules.keys {
+        allDependenciesUpToDate = try allDependenciesUpToDate && dependencyUpToDate(moduleId: moduleId,
+                                                                                    priorGraph: priorGraph)
+        if !allDependenciesUpToDate {
+          break
+        }
+      }
+      return allDependenciesUpToDate
+    }
+    print("Imports do NOT match. Must re-scan")
+    return false
+  }
+
   /// Prescan the source files to produce a module dependency graph and turn it into a set
   /// of jobs required to build all dependencies.
   /// Preprocess the graph by resolving placeholder dependencies, if any are present and
   /// by re-scanning all Clang modules against all possible targets they will be built against.
-  public mutating func generateExplicitModuleDependenciesJobs() throws -> [Job] {
-    // Run the dependency scanner and update the dependency oracle with the results
-    let dependencyGraph = try gatherModuleDependencies()
-
-    // Plan build jobs for all direct and transitive module dependencies of the current target
-    explicitDependencyBuildPlanner =
-      try ExplicitDependencyBuildPlanner(dependencyGraph: dependencyGraph,
-                                         toolchain: toolchain,
-                                         integratedDriver: integratedDriver)
-
-    return try explicitDependencyBuildPlanner!.generateExplicitModuleDependenciesBuildJobs()
+  internal mutating func generateExplicitModuleDependenciesJobs(
+    incrementalState: IncrementalCompilationState.InitialStateForPlanning?) throws -> [Job] {
+    let currentImports = try performImportPrescan()
+    if let priorGraph = incrementalState?.explicitModuleDependencyGraph,
+       try canReusePriorExplicitDependenciesGraph(imports: currentImports.imports,
+                                                  priorGraph: priorGraph) {
+      print("Re-using prior graph.")
+      explicitDependencyBuildPlanner =
+        try ExplicitDependencyBuildPlanner(dependencyGraph: priorGraph,
+                                           toolchain: toolchain,
+                                           integratedDriver: integratedDriver)
+      // If the imports matched exactly, and the dependency graph is still valid,
+      // then we do not actually need to build any of the dependency jobs.
+      return []
+    } else {
+      let dependencyGraph = try gatherModuleDependencies()
+      explicitDependencyBuildPlanner =
+        try ExplicitDependencyBuildPlanner(dependencyGraph: dependencyGraph,
+                                           toolchain: toolchain,
+                                           integratedDriver: integratedDriver)
+      // Plan build jobs for all direct and transitive module dependencies of the current target
+      return try explicitDependencyBuildPlanner!.generateExplicitModuleDependenciesBuildJobs()
+    }
   }
 
   mutating func gatherModuleDependencies()
@@ -531,6 +680,17 @@ extension Driver {
     // Update the dependency oracle, adding this new dependency graph to its store
     try interModuleDependencyOracle.mergeModules(from: dependencyGraph)
 
+    // Serialize on incremental build
+    if parsedOptions.hasArgument(.incremental),
+       let graphPathHandle = self.priorExplicitModuleDependencyGraph,
+       let graphPath = VirtualPath.lookup(graphPathHandle).absolutePath {
+      diagnosticEngine.emit(.remark_incremental_compilation(because: "Write inter-module dependency graph '\(graphPath.description)'"))
+      let encoder = JSONEncoder()
+      encoder.outputFormatting = [.prettyPrinted]
+      let contents = try encoder.encode(dependencyGraph)
+      try fileSystem.writeFileContents(graphPath, bytes: ByteString(contents))
+    }
+
     return dependencyGraph
   }
 
@@ -538,16 +698,16 @@ extension Driver {
   /// if one is present, and for Swift modules to use the context hash in the file name.
   private mutating func resolveDependencyModulePaths(dependencyGraph: inout InterModuleDependencyGraph)
   throws {
-    // For Swift module dependencies, set the output path to include
-    // the module's context hash
-    try resolveSwiftDependencyModuleFileNames(dependencyGraph: &dependencyGraph)
-
     // If a module cache path is specified, update all module dependencies
     // to be output into it.
     if let moduleCachePath = parsedOptions.getLastArgument(.moduleCachePath)?.asSingle {
       try resolveDependencyModulePathsRelativeToModuleCache(dependencyGraph: &dependencyGraph,
                                                             moduleCachePath: moduleCachePath)
     }
+
+    // For Swift module dependencies, set the output path to include
+    // the module's context hash
+    try resolveSwiftDependencyModuleFileNames(dependencyGraph: &dependencyGraph)
   }
 
   /// For Swift module dependencies, set the output path to include the module's context hash
@@ -674,7 +834,8 @@ extension Driver {
 
     case .immediate:
       var jobs: [Job] = []
-      try addPrecompileModuleDependenciesJobs(addJob: { jobs.append($0) })
+      try addPrecompileModuleDependenciesJobs(addJob: { jobs.append($0) },
+                                              incrementalState: nil)
       jobs.append(try interpretJob(inputs: inputFiles))
       return (jobs, nil)
 
