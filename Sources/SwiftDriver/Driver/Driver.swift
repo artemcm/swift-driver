@@ -1047,12 +1047,6 @@ extension Driver {
 
     // If we have a job to run in-place, do so at the end.
     if let inPlaceJob = inPlaceJob {
-      // Print the driver source version first before we print the compiler
-      // versions.
-      if inPlaceJob.kind == .versionRequest && !Driver.driverSourceVersion.isEmpty {
-        stderrStream <<< "swift-driver version: " <<< Driver.driverSourceVersion <<< " "
-        stderrStream.flush()
-      }
       // In verbose mode, print out the job
       if parsedOptions.contains(.v) {
         let arguments: [String] = try executor.resolver.resolveArgumentList(for: inPlaceJob,
@@ -1063,6 +1057,12 @@ extension Driver {
       try executor.execute(job: inPlaceJob,
                            forceResponseFiles: forceResponseFiles,
                            recordedInputModificationDates: recordedInputModificationDates)
+
+      // Print the driver source version after we print the compiler versions.
+      if inPlaceJob.kind == .versionRequest && !Driver.driverSourceVersion.isEmpty {
+        stderrStream <<< "swift-driver version: " <<< Driver.driverSourceVersion <<< " "
+        stderrStream.flush()
+      }
     }
 
     // If requested, warn for options that weren't used by the driver after the build is finished.
