@@ -313,6 +313,7 @@ final class ExplicitModuleBuildTests: XCTestCase {
       let sdkArgumentsForTesting = (try? Driver.sdkArgumentsForTesting()) ?? []
       var driver = try Driver(args: ["swiftc",
                                      "-target", "x86_64-apple-macosx11.0",
+                                     "-swift-version", "5",
                                      "-I", cHeadersPath,
                                      "-I", swiftModuleInterfacesPath,
                                      "-experimental-explicit-module-build",

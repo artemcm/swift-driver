@@ -684,7 +684,8 @@ extension ModuleDependencyGraph {
             throw ReadError.unexpectedMetadataRecord
           }
           guard record.fields.count == 2,
-                case .blob(let compilerVersionBlob) = record.payload
+                case .blob(let compilerVersionBlob) = record.payload,
+                let compilerVersionString = String(data: Data(compilerVersionBlob), encoding: .utf8)
           else { throw ReadError.malformedMetadataRecord }
 
           self.majorVersion = record.fields[0]
@@ -696,7 +697,8 @@ extension ModuleDependencyGraph {
                 let declAspect = DependencyKey.DeclAspect(record.fields[1]),
                 record.fields[2] < identifiers.count,
                 record.fields[3] < identifiers.count,
-                case .blob(let fingerprintBlob) = record.payload
+                case .blob(let fingerprintBlob) = record.payload,
+                let fingerprintStr = String(data: Data(fingerprintBlob), encoding: .utf8)
           else {
             throw ReadError.malformedModuleDepGraphNodeRecord
           }
@@ -740,7 +742,8 @@ extension ModuleDependencyGraph {
         case .externalDepNode:
           guard record.fields.count == 2,
                 record.fields[0] < identifiers.count,
-                case .blob(let fingerprintBlob) = record.payload
+                case .blob(let fingerprintBlob) = record.payload,
+                let fingerprintStr = String(data: Data(fingerprintBlob), encoding: .utf8)
           else {
             throw ReadError.malformedExternalDepNodeRecord
           }
@@ -751,7 +754,8 @@ extension ModuleDependencyGraph {
             FingerprintedExternalDependency(ExternalDependency(fileName: path), fingerprint))
         case .identifierNode:
           guard record.fields.count == 0,
-                case .blob(let identifierBlob) = record.payload
+                case .blob(let identifierBlob) = record.payload,
+                let identifier = String(data: Data(identifierBlob), encoding: .utf8)
           else {
             throw ReadError.malformedIdentifierRecord
           }

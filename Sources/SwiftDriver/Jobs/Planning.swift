@@ -572,6 +572,10 @@ extension Driver {
       try dependencyGraph.resolveExternalDependencies(for: externalTargetDetails)
     }
 
+    // Ensure that we capture the initial scan's configuration in the
+    // `dependenciesCapturedPCMArgs` of discovered Clang modules
+    try updateCapturedPCMArgsBasedOnInitialScan(dependencyGraph: &dependencyGraph)
+
     // Re-scan Clang modules at all the targets they will be built against.
     try resolveVersionedClangDependencies(dependencyGraph: &dependencyGraph)
 
@@ -579,6 +583,28 @@ extension Driver {
     try resolveDependencyModulePaths(dependencyGraph: &dependencyGraph)
 
     return dependencyGraph
+  }
+
+  /// Update the set of Swift-specific PCM build arguments on each Clang dependency to
+  /// immediately capture those from the initial scanning action.
+  private mutating func updateCapturedPCMArgsBasedOnInitialScan(dependencyGraph: inout InterModuleDependencyGraph)
+  throws {
+    // If a swift-version was specified, then the initial scanning action's apinotes argument
+    // will match that. Therefore, there is no need to re-scan at that version.
+    guard let explicitSwiftVersion = parsedOptions.getLastArgument(.swiftVersion) else {
+      return
+    }
+
+    for (moduleId, moduleInfo) in dependencyGraph.modules {
+      guard case .clang(var clangDetails) = moduleInfo.details else {
+        continue
+      }
+      var capturedPCMArgs =
+          clangDetails.dependenciesCapturedPCMArgs ?? Set<[String]>()
+      capturedPCMArgs.insert(["-Xcc", "-fapinotes-swift-version=\(explicitSwiftVersion.asSingle)"])
+      clangDetails.dependenciesCapturedPCMArgs = capturedPCMArgs
+      dependencyGraph.modules[moduleId]!.details = .clang(clangDetails)
+    }
   }
 
   /// Update the given inter-module dependency graph to set module paths to be within the module cache,

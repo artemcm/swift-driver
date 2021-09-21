@@ -228,7 +228,15 @@ extension SourceFileDependencyGraph {
             throw ReadError.unexpectedMetadataRecord
           }
           guard record.fields.count == 2,
+<<<<<<< Updated upstream
                 case .blob(let compilerVersionBlob) = record.payload
+||||||| constructed merge base
+                case .blob(let compilerVersionBlob) = record.payload,
+                let compilerVersionString = String(data: compilerVersionBlob, encoding: .utf8)
+=======
+                case .blob(let compilerVersionBlob) = record.payload,
+                let compilerVersionString = String(data: Data(compilerVersionBlob), encoding: .utf8)
+>>>>>>> Stashed changes
           else { throw ReadError.malformedMetadataRecord }
 
           self.majorVersion = record.fields[0]
@@ -257,8 +265,8 @@ extension SourceFileDependencyGraph {
         case .fingerprintNode:
           guard key != nil,
                 record.fields.count == 0,
-                case .blob(let fingerprintBlob) = record.payload
-          else {
+                case .blob(let fingerprintBlob) = record.payload,
+                let fingerprint = String(data: Data(fingerprintBlob), encoding: .utf8) else {
             throw ReadError.malformedFingerprintRecord
           }
           self.fingerprint = String(decoding: fingerprintBlob, as: UTF8.self)
@@ -268,8 +276,8 @@ extension SourceFileDependencyGraph {
           self.defsNodeDependUpon.append(Int(record.fields[0]))
         case .identifierNode:
           guard record.fields.count == 0,
-                case .blob(let identifierBlob) = record.payload
-          else {
+                case .blob(let identifierBlob) = record.payload,
+                let identifier = String(data: Data(identifierBlob), encoding: .utf8) else {
             throw ReadError.malformedIdentifierRecord
           }
           identifiers.append(String(decoding: identifierBlob, as: UTF8.self))
