@@ -53,31 +53,29 @@ extension Toolchain {
 
 extension Driver {
   static func computeSupportedCompilerArgs(of toolchain: Toolchain, hostTriple: Triple,
-                                               parsedOptions: inout ParsedOptions,
-                                               diagnosticsEngine: DiagnosticsEngine,
-                                               fileSystem: FileSystem,
-                                               executor: DriverExecutor, env: [String: String])
+                                           parsedOptions: inout ParsedOptions,
+                                           diagnosticsEngine: DiagnosticsEngine,
+                                           fileSystem: FileSystem,
+                                           executor: DriverExecutor, env: [String: String])
   throws -> Set<String> {
-    // TODO: Once we are sure libSwiftScan is deployed across supported platforms and architectures
-    // we should deploy it here.
-//    let swiftScanLibPath = try Self.getScanLibPath(of: toolchain,
-//                                                   hostTriple: hostTriple,
-//                                                   env: env)
-//
-//    if fileSystem.exists(swiftScanLibPath) {
-//      let libSwiftScanInstance = try SwiftScan(dylib: swiftScanLibPath)
-//      if libSwiftScanInstance.canQuerySupportedArguments() {
-//        return try libSwiftScanInstance.querySupportedArguments()
-//      }
-//    }
+    let swiftScanLibPath = try Self.getScanLibPath(of: toolchain,
+                                                   hostTriple: hostTriple,
+                                                   env: env)
+    if fileSystem.exists(swiftScanLibPath) {
+      let libSwiftScanInstance = try SwiftScan(dylib: swiftScanLibPath)
+      if libSwiftScanInstance.canQuerySupportedArguments() {
+        return try libSwiftScanInstance.querySupportedArguments()
+      }
+    }
 
+    // As a fallback when libSwiftScan is not available for some reason,
     // Invoke `swift-frontend -emit-supported-features`
     let frontendOverride = try FrontendOverride(&parsedOptions, diagnosticsEngine)
     frontendOverride.setUpForTargetInfo(toolchain)
     defer { frontendOverride.setUpForCompilation(toolchain) }
     let frontendFeaturesJob =
-      try toolchain.emitSupportedCompilerFeaturesJob(swiftCompilerPrefixArgs:
-                                                      frontendOverride.prefixArgsForTargetInfo)
+    try toolchain.emitSupportedCompilerFeaturesJob(swiftCompilerPrefixArgs:
+                                                    frontendOverride.prefixArgsForTargetInfo)
     let decodedSupportedFlagList = try executor.execute(
       job: frontendFeaturesJob,
       capturingJSONOutputAs: SupportedCompilerFeatures.self,
