@@ -98,7 +98,6 @@ add_library(SwiftDriver
   Toolchains/WindowsToolchain.swift
 
   Utilities/DOTJobGraphSerializer.swift
-  Utilities/DateAdditions.swift
   Utilities/Diagnostics.swift
   Utilities/FileList.swift
   Utilities/FileType.swift
