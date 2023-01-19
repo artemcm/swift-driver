@@ -12,6 +12,7 @@
 
 import protocol TSCBasic.FileSystem
 import class Foundation.JSONDecoder
+import class Foundation.JSONEncoder
 
 /// Swift versions are major.minor.
 struct SwiftVersion {
@@ -118,6 +119,19 @@ public struct FrontendTargetInfo: Codable {
 extension FrontendTargetInfo {
   @_spi(Testing) public subscript<T>(dynamicMember dynamicMember: KeyPath<FrontendTargetInfo.Paths, T>) -> T {
     self.paths[keyPath: dynamicMember]
+  }
+}
+
+extension FrontendTargetInfo {
+  public func toJSON() throws -> String {
+    let encoder = JSONEncoder()
+    if #available(macOS 10.13, iOS 11.0, watchOS 4.0, tvOS 11.0, *) {
+      encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+    } else {
+      encoder.outputFormatting = [.prettyPrinted]
+    }
+    let data = try encoder.encode(self)
+    return String(data: data, encoding: .utf8)!
   }
 }
 
@@ -236,6 +250,8 @@ extension Driver {
                                               useResponseFiles: .disabled,
                                               using: executor.resolver)
     Self.sanitizeCommandForLibScanInvocation(&command)
+    print("COMMAND_LINE:")
+    print(command)
     if let targetInfo =
         try Self.queryTargetInfoInProcess(of: toolchain, fileSystem: fileSystem,
                                           invocationCommand: command) {

@@ -2960,7 +2960,19 @@ extension Driver {
 
     // Query the frontend for target information.
     do {
-      var info: FrontendTargetInfo =
+      var info: FrontendTargetInfo = try executor.execute(
+              job: toolchain.printTargetInfoJob(
+                target: explicitTarget, targetVariant: explicitTargetVariant,
+                sdkPath: sdkPath, resourceDirPath: resourceDirPath,
+                runtimeCompatibilityVersion:
+                  parsedOptions.getLastArgument(.runtimeCompatibilityVersion)?.asSingle,
+                useStaticResourceDir: useStaticResourceDir,
+                swiftCompilerPrefixArgs: frontendOverride.prefixArgsForTargetInfo
+              ),
+              capturingJSONOutputAs: FrontendTargetInfo.self,
+              forceResponseFiles: false,
+              recordedInputModificationDates: [:])
+      var info2: FrontendTargetInfo =
         try Self.computeTargetInfo(target: explicitTarget, targetVariant: explicitTargetVariant,
                                    sdkPath: sdkPath, resourceDirPath: resourceDirPath,
                                    runtimeCompatibilityVersion:
@@ -2969,7 +2981,20 @@ extension Driver {
                                    swiftCompilerPrefixArgs: frontendOverride.prefixArgsForTargetInfo,
                                    toolchain: toolchain, fileSystem: fileSystem,
                                    executor: executor)
-
+      if (info.runtimeLibraryPaths != info2.runtimeLibraryPaths) {
+        print("------------------ runtimeLibraryPaths ----------------")
+        print("-------------------------- OG -------------------------")
+        for path in info.runtimeLibraryImportPaths {
+          print(path.description)
+        }
+        //print(try info.toJSON())
+        print("------------------------- NEW -------------------------")
+        for path in info2.runtimeLibraryImportPaths {
+          print(path.description)
+        }
+        //print(try info2.toJSON())
+        print("-------------------------------------------------------")
+      }
 
       // Parse the runtime compatibility version. If present, it will override
       // what is reported by the frontend.
