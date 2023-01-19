@@ -185,10 +185,30 @@ extension Driver {
     if let swiftScanLibPath = optionalSwiftScanLibPath,
        fileSystem.exists(swiftScanLibPath) {
       let libSwiftScanInstance = try SwiftScan(dylib: swiftScanLibPath)
-      if libSwiftScanInstance.canQueryTargetInfo(),
-         libSwiftScanInstance.supportsStringDispose() {
+      if libSwiftScanInstance.canQueryTargetInfo() {
         let targetInfoData = try libSwiftScanInstance.queryTargetInfoJSON(invocationCommand: invocationCommand)
-        return try JSONDecoder().decode(FrontendTargetInfo.self, from: targetInfoData)
+        do {
+          return try JSONDecoder().decode(FrontendTargetInfo.self, from: targetInfoData)
+        } catch let decodingError as DecodingError {
+          let stringToDecode = String(data: targetInfoData, encoding: .utf8)
+          let errorDesc: String
+          switch decodingError {
+            case let .typeMismatch(type, context):
+              errorDesc = "type mismatch: \(type), path: \(context.codingPath)"
+            case let .valueNotFound(type, context):
+              errorDesc = "value missing: \(type), path: \(context.codingPath)"
+            case let .keyNotFound(key, context):
+              errorDesc = "key missing: \(key), path: \(context.codingPath)"
+           case let .dataCorrupted(context):
+              errorDesc = "data corrupted at path: \(context.codingPath)"
+            @unknown default:
+              errorDesc = "unknown decoding error"
+          }
+          throw Error.unableToDecodeFrontendTargetInfo(
+            stringToDecode,
+            invocationCommand,
+            errorDesc)
+        }
       }
     }
     return nil

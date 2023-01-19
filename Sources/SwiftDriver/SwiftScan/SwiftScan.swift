@@ -333,8 +333,10 @@ internal extension swiftscan_diagnostic_severity_t {
                                              invocationStringArray)
     }
     let targetInfoStringRef = api.swiftscan_compiler_target_info_query(invocation)
-    defer { api.swiftscan_string_dispose(targetInfoStringRef) }
     let targetInfoString = try toSwiftString(targetInfoStringRef)
+    if supportsStringDispose() {
+      api.swiftscan_string_dispose(targetInfoStringRef)
+    }
     let targetInfoData = Data(targetInfoString.utf8)
     return targetInfoData
   }

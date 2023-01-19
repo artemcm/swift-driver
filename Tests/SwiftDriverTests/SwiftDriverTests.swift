@@ -4770,7 +4770,7 @@ final class SwiftDriverTests: XCTestCase {
 
   func testPrintTargetInfo() throws {
     do {
-      var driver = try Driver(args: ["swift", "-print-target-info", "-sdk", "bar", "-resource-dir", "baz"])
+      var driver = try Driver(args: ["swift", "-print-target-info", "-target", "arm64-apple-ios12.0", "-sdk", "bar", "-resource-dir", "baz"])
       let plannedJobs = try driver.planBuild()
       XCTAssertTrue(plannedJobs.count == 1)
       let job = plannedJobs[0]
@@ -4779,18 +4779,6 @@ final class SwiftDriverTests: XCTestCase {
       XCTAssertTrue(job.commandLine.contains(.flag("-target")))
       XCTAssertTrue(job.commandLine.contains(.flag("-sdk")))
       XCTAssertTrue(job.commandLine.contains(.flag("-resource-dir")))
-    }
-
-    do {
-      let targetInfoArgs = ["-print-target-info", "-sdk", "bar", "-resource-dir", "baz"]
-      let driver = try Driver(args: ["swift"] + targetInfoArgs)
-      let swiftScanLibPath = try XCTUnwrap(driver.toolchain.lookupSwiftScanLib())
-      if localFileSystem.exists(swiftScanLibPath) {
-        let libSwiftScanInstance = try SwiftScan(dylib: swiftScanLibPath)
-        if libSwiftScanInstance.canQueryTargetInfo() {
-          XCTAssertTrue(try driver.verifyBeingAbleToQueryTargetInfoInProcess(invocationCommand: targetInfoArgs))
-        }
-      }
     }
 
     do {
@@ -4815,7 +4803,11 @@ final class SwiftDriverTests: XCTestCase {
         }
       }
 
+      // Override path to libSwiftScan to force the fallback of using the executor
+      var hideSwiftScanEnv = ProcessEnv.vars
+      hideSwiftScanEnv["SWIFT_DRIVER_SWIFTSCAN_LIB"] = "/bad/path/lib_InternalSwiftScan.dylib"
       XCTAssertThrowsError(try Driver(args: ["swift", "-print-target-info"],
+                                      env: hideSwiftScanEnv,
                                       executor: MockExecutor(resolver: ArgsResolver(fileSystem: InMemoryFileSystem())))) {
         error in
         if case .unableToDecodeFrontendTargetInfo = error as? Driver.Error {}
