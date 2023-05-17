@@ -222,3 +222,47 @@ extension InterModuleDependencyGraph {
                       details: .clang(combinedModuleDetails))
   }
 }
+
+internal extension InterModuleDependencyGraph {
+  func explainDependency(dependencyModuleName: String) throws -> [[ModuleDependencyId]]? {
+    guard modules.contains(where: { $0.key.moduleName == dependencyModuleName }) else { return nil }
+    var visited = Set<ModuleDependencyId>()
+    var results = [[ModuleDependencyId]]()
+    try findAllPaths(source: .swift(mainModuleName),
+                     to: dependencyModuleName,
+                     pathSoFar: [.swift(mainModuleName)],
+                     visited: &visited,
+                     results: &results)
+    return results
+  }
+
+
+  private func findAllPaths(source: ModuleDependencyId,
+                            to moduleName: String,
+                            pathSoFar: [ModuleDependencyId],
+                            visited: inout Set<ModuleDependencyId>,
+                            results: inout [[ModuleDependencyId]]) throws {
+    // If the source is our target, we are done
+    guard source.moduleName != moduleName else {
+      results.append(pathSoFar)
+      return
+    }
+
+    let sourceInfo = try moduleInfo(of: source)
+    // If no more dependencies, this is a leaf node, we are done
+    guard let dependencies = sourceInfo.directDependencies else {
+      return
+    }
+
+    for dependency in dependencies {
+      if !visited.contains(dependency) {
+        visited.insert(dependency)
+        try findAllPaths(source: dependency,
+                         to: moduleName,
+                         pathSoFar: pathSoFar + [dependency],
+                         visited: &visited,
+                         results: &results)
+      }
+    }
+  }
+}

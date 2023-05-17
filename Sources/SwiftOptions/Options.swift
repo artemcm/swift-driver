@@ -18,6 +18,11 @@
 //===----------------------------------------------------------------------===//
 
 extension Option {
+  // ACTODO: Add in the main repo
+  public static let explainDependency: Option = Option("-explain-dependency", .separate,
+                                                       attributes: [.helpHidden, .doesNotAffectIncrementalBuild],
+                                                       helpText: "Show a dependency chain to a specified module",
+                                                       group: .internalDebug)
   public static let INPUT: Option = Option("<input>", .input, attributes: [.argumentIsPath])
   public static let HASHHASHHASH: Option = Option("-###", .flag, alias: Option.driverPrintJobs)
   public static let abi: Option = Option("-abi", .flag, attributes: [.noDriver], helpText: "Dumping ABI interface")
@@ -791,6 +796,7 @@ extension Option {
 extension Option {
   public static var allOptions: [Option] {
     return [
+      Option.explainDependency,
       Option.INPUT,
       Option.HASHHASHHASH,
       Option.abi,

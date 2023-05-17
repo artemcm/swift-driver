@@ -1370,6 +1370,37 @@ extension Driver {
       return
     }
 
+    // If we're only supposed to explain a dependency on a given module, do so now.
+    if let explainModuleName = parsedOptions.getLastArgument(.explainDependency) {
+      guard let dependencyPlanner = explicitDependencyBuildPlanner else {
+        fatalError("Cannot explain dependency without Explicit Build Planner")
+      }
+      guard let dependencyPaths = try dependencyPlanner.explainDependency(explainModuleName.asSingle) else {
+        print("<<< No such module dependency found: '\(explainModuleName.asSingle)' >>>")
+        return
+      }
+      print("Module '\(moduleOutputInfo.name)' depends on '\(explainModuleName.asSingle)':")
+      for path in dependencyPaths {
+        for (index, moduleId) in path.enumerated() {
+          switch moduleId {
+          case .swift(let moduleName):
+            print("[" + moduleName + "]", terminator: "")
+          case .swiftPrebuiltExternal(let moduleName):
+            print("[" + moduleName + "]", terminator: "")
+          case .clang(let moduleName):
+            print("[" + moduleName + "](ObjC)", terminator: "")
+          case .swiftPlaceholder(_):
+            fatalError("Unexpected unresolved Placeholder module")
+          }
+          if index < path.count - 1 {
+            print(" -> ", terminator: "")
+          }
+        }
+        print("")
+      }
+      return
+    }
+
     if parsedOptions.contains(.driverPrintOutputFileMap) {
       if let outputFileMap = self.outputFileMap {
         stderrStream <<< outputFileMap.description
