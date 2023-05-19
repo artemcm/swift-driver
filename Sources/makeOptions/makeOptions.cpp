@@ -64,6 +64,7 @@ enum SwiftFlags {
   SwiftAPIDigesterOption = (1 << 17),
   NewDriverOnlyOption = (1 << 18),
   ModuleInterfaceOptionIgnorable = (1 << 19),
+  ModuleInterfaceOptionIgnorablePrivate = (1 << 20)
 };
 
 static std::set<std::string> swiftKeywords = { "internal", "static" };
@@ -194,7 +195,7 @@ void forEachSpelling(const char * const *prefixes, const std::string &spelling,
 int makeOptions_main() {
   // Check if options were available.
   if (sizeof(rawOptions) == 0) {
-    std::cerr << "error: swift/Options/Options.inc unavailable at compile time\n";
+    std::cerr << "error: swift/Option/Options.inc unavailable at compile time\n";
     return 1;
   }
     
