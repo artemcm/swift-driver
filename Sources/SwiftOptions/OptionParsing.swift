@@ -16,6 +16,7 @@ public enum OptionParseError : Error, Equatable, DiagnosticData {
   case unknownOption(index: Int, argument: String)
   case missingArgument(index: Int, argument: String)
   case unsupportedOption(index: Int, argument: String, option: Option, currentDriverKind: DriverKind)
+  case emptyStringArgument(option: String)
 
   public var description: String {
     switch self {
@@ -28,7 +29,10 @@ public enum OptionParseError : Error, Equatable, DiagnosticData {
       // driver and could be improved.
       let recommendedDriverKind: DriverKind = option.attributes.contains(.noBatch) ? .interactive : .batch
       return "option '\(arg)' is not supported by '\(driverKind.usage)'; did you mean to use '\(recommendedDriverKind.usage)'?"
+    case let .emptyStringArgument(option: option):
+      return "Argument to '\(option)' cannot be an empty string"
     }
+
   }
 }
 
@@ -167,6 +171,9 @@ extension OptionTable {
         if index == arguments.endIndex {
           throw OptionParseError.missingArgument(
             index: index - 1, argument: argument)
+        }
+        if arguments[index].isEmpty {
+          throw OptionParseError.emptyStringArgument(option: option.spelling)
         }
 
         parsedOptions.addOption(option, argument: .single(arguments[index]))
