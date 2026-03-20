@@ -55,6 +55,7 @@ final class LLBuildEngine {
     }
   }
 
+  @_implementationOnly
   fileprivate final class Delegate: BuildEngineDelegate {
     let delegate: LLBuildEngineDelegate
     var errors: [String] = []
@@ -134,6 +135,7 @@ class LLTaskBuildEngine {
 }
 
 /// An individual build rule.
+@_implementationOnly
 class LLBuildRule: Rule, Task {
 
   /// The name of the rule.
