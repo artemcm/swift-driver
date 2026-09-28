@@ -189,7 +189,42 @@ func getStdlibShimsPaths(_ driver: Driver) throws -> (AbsolutePath, AbsolutePath
 }
 
 /// Test that for the given JSON module dependency graph, valid jobs are generated
+<<<<<<< Updated upstream
 @Suite struct ExplicitModuleBuildTests {
+=======
+@Suite(.realDependencyScan) struct ExplicitModuleBuildTests {
+  /// `-nonlib-dependency-scanner` selects the out-of-process scanner rather
+  /// than making scanning unavailable, so the default must stay on.
+  @Test func nonlibDependencyScannerKeepsExplicitModuleBuildDefault() async throws {
+    try await assertNoDriverDiagnostics(args: "swiftc", "-c", "foo.swift", "-nonlib-dependency-scanner") {
+      driver in
+      #expect(driver.isExplicitModuleBuildEnabled)
+    }
+  }
+
+  /// Parse-only actions never load modules, so the default explicit module
+  /// build must not scan their dependencies.
+  @Test func parseOnlyActionsSkipDependencyScanning() async throws {
+    try await withTemporaryDirectory { path in
+      let main = path.appending(component: "main.swift")
+      try localFileSystem.writeFileContents(main, bytes: "import DoesNotExist\nlet x = 1\n")
+      let sdkArgumentsForTesting = (try? Driver.sdkArgumentsForTesting()) ?? []
+
+      for action in ["-parse", "-dump-parse", "-emit-imported-modules"] {
+        var driver = try TestDriver(
+          args: ["swiftc", action, main.nativePathString(escaped: false)] + sdkArgumentsForTesting
+        )
+        let jobs = try await driver.planBuild()
+        #expect(!driver.diagnosticEngine.hasErrors, "\(action) should not resolve module dependencies")
+        #expect(
+          !jobs.contains { $0.commandLine.contains(.flag("-explicit-swift-module-map-file")) },
+          "\(action) should not be planned as an explicit module build"
+        )
+      }
+    }
+  }
+
+>>>>>>> Stashed changes
   @Test func moduleDependencyBuildCommandGeneration() async throws {
     do {
       let driver = try TestDriver(args: [
@@ -622,7 +657,7 @@ func getStdlibShimsPaths(_ driver: Driver) throws -> (AbsolutePath, AbsolutePath
 
       // An implicit build has nothing else recording where the module came
       // from, so it still needs the serialized AST.
-      #expect(try await planLinkJob([]).passesASTPath)
+      #expect(try await planLinkJob(["-no-explicit-module-build"]).passesASTPath)
 
       // Dropping the AST is tied to the frontend recording this module's path
       // via -debug-module-path. A frontend too old to do so still needs it.
