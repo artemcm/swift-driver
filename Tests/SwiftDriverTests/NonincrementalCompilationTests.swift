@@ -283,6 +283,7 @@ import Testing
         "-c",
         "-driver-show-job-lifecycle",
         "-driver-show-incremental",
+        "-no-explicit-module-build",
       ],
       expecting: [
         .remark("Starting Compiling main.swift"),
@@ -297,7 +298,7 @@ import Testing
     )
 
   }
-  @Test func noIncremental() async throws {
+  @Test(.realDependencyScan) func noIncremental() async throws {
     try await runDriver(
       with: [
         "-c",

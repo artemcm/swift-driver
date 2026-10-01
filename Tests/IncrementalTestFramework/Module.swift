@@ -143,7 +143,9 @@ extension Module {
     let diagnosticsEngine = DiagnosticsEngine(handlers: handlers)
 
     let args = try arguments(in: context)
-    var driver = try TestDriver(args: args, diagnosticsEngine: diagnosticsEngine)
+    // These builds run their compiles, which needs a real dependency scan.
+    var driver = try TestDriver(args: args, diagnosticsEngine: diagnosticsEngine,
+                                interModuleDependencyOracle: InterModuleDependencyOracle())
     let jobs = try await driver.planBuild()
     try await driver.run(jobs: jobs)
 

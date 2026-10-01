@@ -189,9 +189,6 @@ func getStdlibShimsPaths(_ driver: Driver) throws -> (AbsolutePath, AbsolutePath
 }
 
 /// Test that for the given JSON module dependency graph, valid jobs are generated
-<<<<<<< Updated upstream
-@Suite struct ExplicitModuleBuildTests {
-=======
 @Suite(.realDependencyScan) struct ExplicitModuleBuildTests {
   /// `-nonlib-dependency-scanner` selects the out-of-process scanner rather
   /// than making scanning unavailable, so the default must stay on.
@@ -224,7 +221,6 @@ func getStdlibShimsPaths(_ driver: Driver) throws -> (AbsolutePath, AbsolutePath
     }
   }
 
->>>>>>> Stashed changes
   @Test func moduleDependencyBuildCommandGeneration() async throws {
     do {
       let driver = try TestDriver(args: [
@@ -3051,7 +3047,7 @@ func getStdlibShimsPaths(_ driver: Driver) throws -> (AbsolutePath, AbsolutePath
       do {
         let diagnosticEngine = DiagnosticsEngine()
         var driver = try TestDriver(
-          args: baseCommandLine + ["-print-explicit-dependency-graph"],
+          args: baseCommandLine + ["-print-explicit-dependency-graph", "-no-explicit-module-build"],
           diagnosticsEngine: diagnosticEngine
         )
         let _ = try await driver.planBuild()
