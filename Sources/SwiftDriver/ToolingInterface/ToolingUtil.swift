@@ -91,9 +91,10 @@ public func getSingleFrontendInvocationFromDriverArgumentsV2(driverPath: String,
                                                              diagnosticCallback:  @escaping (CInt, String) -> Void,
                                                              compilerIntegratedTooling: Bool = false,
                                                              forceNoOutputs: Bool = false) -> Bool {
+    let resolver: ArgsResolver
     let executor: SimpleExecutor
     do {
-        let resolver = try ArgsResolver(fileSystem: localFileSystem)
+        resolver = try ArgsResolver(fileSystem: localFileSystem)
         executor = SimpleExecutor(resolver: resolver,
                                       fileSystem: localFileSystem,
                                       env: ProcessEnv.block)
@@ -101,6 +102,11 @@ public func getSingleFrontendInvocationFromDriverArgumentsV2(driverPath: String,
         print("Unexpected error: \(error)")
         return true
     }
+
+    // This overload creates the resolver, so it also owns the temporary
+    // directory the resolver creates. Neither outlives this call, and planning
+    // a single frontend invocation produces no artifact worth keeping there.
+    defer { try? resolver.removeTemporaryDirectory() }
 
   return getSingleFrontendInvocationFromDriverArgumentsV5(driverPath: driverPath, argList: argList, action: action, diagnostics: &diagnostics, diagnosticCallback: diagnosticCallback, envBlock: ProcessEnv.block, executor: executor, compilerIntegratedTooling: compilerIntegratedTooling, forceNoOutputs: forceNoOutputs)
 }
